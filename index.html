@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connecting to Autoworks...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; }
+        p { margin: 0; opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner" id="spinner"></div>
+        <h1 id="title">Redirecting...</h1>
+        <p id="message">Taking you back to Autoworks</p>
+        <p id="statusText" style="font-size: 12px; opacity: 0.7; margin-top: 20px;"></p>
+        <pre id="debugLog" style="font-size: 10px; text-align: left; max-width: 500px; overflow-x: auto; margin-top: 20px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; max-height: 300px; overflow-y: auto;">LOADING v2.0...</pre>
+    </div>
+
+    <script>
+        // Immediate test to show page is loading
+        document.getElementById('title').textContent = 'OAuth Callback v2.0';
+        document.getElementById('message').textContent = 'Processing...';
+    </script>
+    <script>
+        // Debug logger that shows in UI
+        function debugLog(msg) {
+            console.log(msg);
+            const debugEl = document.getElementById('debugLog');
+            debugEl.textContent += msg + '\n';
+            debugEl.scrollTop = debugEl.scrollHeight;
+        }
+        
+        // Get the current URL with all query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        debugLog('=== GITHUB PAGES OAUTH CALLBACK ===');
+        debugLog('URL: ' + window.location.href);
+        
+        // Check for errors
+        const error = urlParams.get('error');
+        if (error) {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('title').textContent = 'Authentication Failed';
+            document.getElementById('message').textContent = `Error: ${error}`;
+            document.getElementById('statusText').textContent = `${urlParams.get('error_description') || 'Unknown error'}`;
+            return;
+        }
+        
+        // Get the authorization code
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        
+        if (!code) {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('title').textContent = 'Error';
+            document.getElementById('message').textContent = 'No authorization code received';
+            return;
+        }
+        
+        debugLog('Code: ' + code.substring(0, 20) + '...');
+        debugLog('State: ' + state.substring(0, 30) + '...');
+        
+        // POST directly to API Gateway (no auth required - userId is in state)
+        const apiGatewayUrl = 'https://ytyeeucfki.execute-api.us-east-1.amazonaws.com/dev';
+        const provider = 'linkedin';
+        const endpoint = `${apiGatewayUrl}/integrations/credentials/${provider}`;
+        const redirectUri = 'https://autoworks29.github.io/pages/';
+        
+        document.getElementById('statusText').textContent = 'Exchanging authorization code...';
+        
+        debugLog('\n=== POSTING TO API GATEWAY ===');
+        debugLog('Endpoint: ' + endpoint);
+        debugLog('Method: POST');
+        debugLog('Body: ' + JSON.stringify({
+            authorizationCode: code.substring(0, 20) + '...',
+            redirectUri: redirectUri,
+            state: state.substring(0, 30) + '...'
+        }, null, 2));
+        
+        fetch(endpoint, {
+            method: 'POST',
+            mode: 'cors',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                authorizationCode: code,
+                redirectUri: redirectUri,
+                state: state
+            })
+        })
+        .then(response => {
+            debugLog('\n=== RESPONSE RECEIVED ===');
+            debugLog('Status: ' + response.status + ' ' + response.statusText);
+            debugLog('Headers: ' + JSON.stringify(Array.from(response.headers.entries()), null, 2));
+            
+            if (!response.ok) {
+                return response.text().then(text => {
+                    debugLog('ERROR Response body: ' + text);
+                    throw new Error(`API error ${response.status}: ${text}`);
+                });
+            }
+            
+            return response.json();
+        })
+        .then(data => {
+            debugLog('\n=== SUCCESS ===');
+            debugLog('Response: ' + JSON.stringify(data, null, 2));
+            
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('title').textContent = 'Success!';
+            document.getElementById('message').textContent = 'LinkedIn connected successfully';
+            document.getElementById('statusText').textContent = 'Closing window...';
+            
+            // Notify parent window of success
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                    type: 'OAUTH_SUCCESS',
+                    provider: 'linkedin'
+                }, '*');
+            }
+            
+            // Close popup after 1.5 seconds
+            setTimeout(() => {
+                window.close();
+            }, 1500);
+        })
+        .catch(error => {
+            debugLog('\n=== ERROR ===');
+            debugLog('Error: ' + error.message);
+            debugLog('Stack: ' + error.stack);
+            
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('title').textContent = 'Error';
+            document.getElementById('message').textContent = error.message || 'Failed to connect';
+            document.getElementById('statusText').textContent = 'See details below';
+            
+            // Notify parent window of failure
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                    type: 'OAUTH_ERROR',
+                    error: error.message
+                }, '*');
+            }
+        });
+        
+        // Fallback: If redirect doesn't work after 2 seconds, show message
+        setTimeout(() => {
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('title').textContent = 'Redirect Failed';
+            document.getElementById('message').textContent = 'Click below to continue manually';
+            
+            const link = document.createElement('a');
+            link.href = redirectUrl;
+            link.textContent = 'Click here to return to Autoworks';
+            link.style.cssText = 'display: block; margin-top: 20px; color: white; text-decoration: underline;';
+            document.querySelector('.container').appendChild(link);
+        }, 2000);
+    </script>
+</body>
+</html>
